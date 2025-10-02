@@ -20,13 +20,13 @@
 - [ ] Add API documentation
 
 ## Deployment Tasks
-- [ ] Set up environment variables
-- [ ] Configure production database
-- [ ] Set up SSL certificates
-- [ ] Configure CORS for production
+- [x] Set up environment variables - DONE
+- [x] Configure production database - DONE (Neon PostgreSQL)
+- [x] Set up SSL certificates - DONE (via cloud.morph.so)
+- [x] Configure CORS for production - DONE
 - [ ] Set up monitoring
-- [ ] Create GitHub repository
-- [ ] Push code to GitHub
+- [x] Create GitHub repository - DONE (femikupoluyi/grandpro-hmso-nigeria)
+- [x] Push code to GitHub - DONE
 - [ ] Set up CI/CD pipeline
 
 ## Testing Tasks
