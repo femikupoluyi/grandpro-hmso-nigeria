@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const insuranceIntegration = require('../integrations/insuranceIntegration');
 const pharmacyIntegration = require('../integrations/pharmacyIntegration');
-const telemedicineIntegration = require('../integrations/telemedicineIntegration');
+// const telemedicineIntegration = require('../integrations/telemedicineIntegration');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 
 // ============= INSURANCE/HMO ROUTES =============

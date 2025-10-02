@@ -2,14 +2,19 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 require('dotenv').config();
 
 const { testConnection } = require('./config/database');
 const { initDatabase } = require('./config/initDatabase');
 const onboardingRoutes = require('./routes/onboarding');
 const integrationRoutes = require('./routes/integrationRoutes');
+// const insuranceRoutes = require('./routes/insuranceRoutes');
+// const pharmacyRoutes = require('./routes/pharmacyRoutes');
+// const telemedicineRoutes = require('./routes/telemedicineRoutes');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Create uploads directory if it doesn't exist
@@ -32,6 +37,9 @@ app.use('/uploads', express.static(uploadDir));
 // Routes
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/integrations', integrationRoutes);
+// app.use('/api/insurance', insuranceRoutes);
+// app.use('/api/pharmacy', pharmacyRoutes);
+// app.use('/api/telemedicine', telemedicineRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -69,10 +77,15 @@ const startServer = async () => {
     process.exit(1);
   }
 
-  app.listen(PORT, () => {
+  // Initialize WebSocket server for video calls
+  // const SignalingServer = require('./websocket/signaling');
+  // new SignalingServer(server);
+  
+  server.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     console.log(`📍 Timezone: ${process.env.DEFAULT_TIMEZONE}`);
     console.log(`💰 Currency: ${process.env.DEFAULT_CURRENCY}`);
+    console.log(`🎥 WebSocket signaling server ready at ws://localhost:${PORT}/ws/signaling`);
   });
 };
 
