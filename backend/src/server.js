@@ -7,6 +7,7 @@ require('dotenv').config();
 const { testConnection } = require('./config/database');
 const { initDatabase } = require('./config/initDatabase');
 const onboardingRoutes = require('./routes/onboarding');
+const integrationRoutes = require('./routes/integrationRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,6 +31,7 @@ app.use('/uploads', express.static(uploadDir));
 
 // Routes
 app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/integrations', integrationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -233,11 +233,132 @@ const initDatabase = async () => {
     await sql`CREATE INDEX IF NOT EXISTS idx_evaluations_application ON application_evaluations(application_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_contracts_application ON contracts(application_id)`;
 
+    // Create integration tables
+    await createIntegrationTables();
+
     console.log('✅ Database schema initialized successfully!');
     return true;
   } catch (error) {
     console.error('❌ Database initialization failed:', error);
     return false;
+  }
+};
+
+const createIntegrationTables = async () => {
+  const { sql } = require('./database');
+  
+  try {
+    // Insurance/HMO Integration Tables
+    await sql`
+      CREATE TABLE IF NOT EXISTS insurance_verifications (
+        id SERIAL PRIMARY KEY,
+        patient_id INTEGER,
+        provider_id VARCHAR(50) NOT NULL,
+        insurance_number VARCHAR(100) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        coverage_details JSONB,
+        verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS insurance_claims (
+        id SERIAL PRIMARY KEY,
+        claim_id VARCHAR(100) UNIQUE NOT NULL,
+        patient_id INTEGER,
+        provider_id VARCHAR(50) NOT NULL,
+        hospital_id INTEGER,
+        amount DECIMAL(12, 2) NOT NULL,
+        approved_amount DECIMAL(12, 2),
+        services JSONB NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        submission_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        response_date TIMESTAMP,
+        response_data JSONB,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    // Pharmacy Integration Tables
+    await sql`
+      CREATE TABLE IF NOT EXISTS pharmacy_orders (
+        id SERIAL PRIMARY KEY,
+        order_id VARCHAR(100) UNIQUE NOT NULL,
+        hospital_id INTEGER,
+        supplier_id VARCHAR(50),
+        order_items JSONB NOT NULL,
+        total_amount DECIMAL(12, 2) NOT NULL,
+        order_status VARCHAR(50) DEFAULT 'pending',
+        order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expected_delivery TIMESTAMP,
+        actual_delivery TIMESTAMP,
+        tracking_info JSONB,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS inventory (
+        id SERIAL PRIMARY KEY,
+        hospital_id INTEGER,
+        drug_name VARCHAR(200) NOT NULL,
+        current_quantity INTEGER NOT NULL DEFAULT 0,
+        unit_of_measure VARCHAR(50),
+        batch_number VARCHAR(100),
+        expiry_date DATE,
+        last_restocked TIMESTAMP,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    // Telemedicine Integration Tables
+    await sql`
+      CREATE TABLE IF NOT EXISTS telemedicine_consultations (
+        id SERIAL PRIMARY KEY,
+        consultation_id VARCHAR(100) UNIQUE NOT NULL,
+        patient_id INTEGER,
+        doctor_id INTEGER,
+        hospital_id INTEGER,
+        provider_id VARCHAR(50) DEFAULT 'WELLNESS',
+        scheduled_time TIMESTAMP NOT NULL,
+        start_time TIMESTAMP,
+        end_time TIMESTAMP,
+        duration_minutes INTEGER DEFAULT 30,
+        actual_duration INTEGER,
+        consultation_type VARCHAR(50) DEFAULT 'general',
+        chief_complaint TEXT,
+        consultation_summary JSONB,
+        room_url TEXT,
+        room_credentials JSONB,
+        recording_url TEXT,
+        status VARCHAR(50) DEFAULT 'scheduled',
+        patient_joined_at TIMESTAMP,
+        doctor_joined_at TIMESTAMP,
+        prescription_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS ai_triage_results (
+        id SERIAL PRIMARY KEY,
+        triage_id VARCHAR(100) UNIQUE NOT NULL,
+        patient_id INTEGER,
+        symptoms JSONB NOT NULL,
+        triage_result JSONB NOT NULL,
+        urgency_level VARCHAR(20) NOT NULL,
+        recommended_action VARCHAR(200),
+        confidence_score DECIMAL(3, 2),
+        consultation_scheduled BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    console.log('✅ Integration tables created successfully!');
+  } catch (error) {
+    console.error('❌ Error creating integration tables:', error);
+    // Don't throw error to allow initialization to continue
   }
 };
 
