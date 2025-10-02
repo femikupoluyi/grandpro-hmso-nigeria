@@ -8,6 +8,7 @@ import ContractReview from './pages/ContractReview';
 import HomePage from './pages/HomePage';
 import CommandCentreSimple from './pages/operations/CommandCentreSimple';
 import PartnerIntegrations from './pages/integrations/PartnerIntegrations';
+import AnalyticsDashboard from './pages/analytics/AnalyticsDashboard';
 import Layout from './components/Layout';
 
 function App() {
@@ -45,6 +46,7 @@ function App() {
         <Route path="/contract/:contractId" element={<Layout><ContractReview /></Layout>} />
         <Route path="/command-centre" element={<CommandCentreSimple />} />
         <Route path="/integrations" element={<PartnerIntegrations />} />
+        <Route path="/analytics" element={<AnalyticsDashboard />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>

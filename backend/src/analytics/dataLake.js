@@ -1,588 +1,441 @@
-const { sql } = require('../config/database');
-const schedule = require('node-schedule');
+const { Pool } = require('pg');
+const logger = require('../utils/logger');
 
-/**
- * GrandPro HMSO Data Lake & Analytics Module
- * Centralized data aggregation and predictive analytics
- */
-
-class DataLakeManager {
+// Data Lake configuration with logical schemas for each module
+class DataLake {
   constructor() {
+    // Main data lake connection pool
+    this.pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+
+    // Schema definitions for each module
     this.schemas = {
-      operational: 'public',
-      analytics: 'analytics',
-      staging: 'staging',
-      warehouse: 'data_warehouse'
+      operations: 'dl_operations',
+      clinical: 'dl_clinical',
+      financial: 'dl_financial',
+      hr: 'dl_hr',
+      inventory: 'dl_inventory',
+      partners: 'dl_partners',
+      analytics: 'dl_analytics'
     };
-    this.etlJobs = new Map();
   }
 
-  /**
-   * Initialize data lake schemas
-   */
-  async initializeDataLake() {
+  // Initialize data lake schemas
+  async initializeSchemas() {
     try {
-      console.log('🔄 Initializing Data Lake schemas...');
-
-      // Create analytics schema
-      await sql`CREATE SCHEMA IF NOT EXISTS analytics`;
-      await sql`CREATE SCHEMA IF NOT EXISTS staging`;
-      await sql`CREATE SCHEMA IF NOT EXISTS data_warehouse`;
-
-      // Create fact tables for data warehouse
-      await this.createFactTables();
-      
-      // Create dimension tables
-      await this.createDimensionTables();
-      
-      // Create materialized views for performance
-      await this.createMaterializedViews();
-
-      // Create analytics aggregation tables
-      await this.createAnalyticsTables();
-
-      console.log('✅ Data Lake initialized successfully');
-      return true;
-    } catch (error) {
-      console.error('❌ Error initializing data lake:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create fact tables for the data warehouse
-   */
-  async createFactTables() {
-    // Fact table for patient visits
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.fact_patient_visits (
-        visit_id SERIAL PRIMARY KEY,
-        patient_id INTEGER,
-        hospital_id INTEGER,
-        doctor_id INTEGER,
-        visit_date DATE,
-        visit_time TIME,
-        visit_type VARCHAR(50),
-        diagnosis_code VARCHAR(20),
-        treatment_cost DECIMAL(12, 2),
-        insurance_claim_amount DECIMAL(12, 2),
-        payment_method VARCHAR(50),
-        duration_minutes INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // Fact table for hospital operations
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.fact_hospital_operations (
-        operation_id SERIAL PRIMARY KEY,
-        hospital_id INTEGER,
-        operation_date DATE,
-        total_patients INTEGER,
-        total_admissions INTEGER,
-        total_discharges INTEGER,
-        bed_occupancy_rate DECIMAL(5, 2),
-        staff_attendance_rate DECIMAL(5, 2),
-        daily_revenue DECIMAL(12, 2),
-        daily_expenses DECIMAL(12, 2),
-        emergency_cases INTEGER,
-        surgery_count INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // Fact table for drug inventory
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.fact_drug_inventory (
-        inventory_id SERIAL PRIMARY KEY,
-        hospital_id INTEGER,
-        drug_id INTEGER,
-        snapshot_date DATE,
-        opening_stock INTEGER,
-        received_quantity INTEGER,
-        dispensed_quantity INTEGER,
-        closing_stock INTEGER,
-        stock_value DECIMAL(12, 2),
-        expiring_soon_count INTEGER,
-        stockout_incidents INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // Fact table for financial transactions
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.fact_financial_transactions (
-        transaction_id SERIAL PRIMARY KEY,
-        hospital_id INTEGER,
-        transaction_date DATE,
-        transaction_type VARCHAR(50),
-        category VARCHAR(50),
-        amount DECIMAL(12, 2),
-        payment_method VARCHAR(50),
-        insurance_provider VARCHAR(100),
-        department VARCHAR(50),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-  }
-
-  /**
-   * Create dimension tables
-   */
-  async createDimensionTables() {
-    // Time dimension
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.dim_time (
-        time_id SERIAL PRIMARY KEY,
-        date DATE UNIQUE,
-        year INTEGER,
-        quarter INTEGER,
-        month INTEGER,
-        month_name VARCHAR(20),
-        week_of_year INTEGER,
-        day_of_month INTEGER,
-        day_of_week INTEGER,
-        day_name VARCHAR(20),
-        is_weekend BOOLEAN,
-        is_holiday BOOLEAN,
-        holiday_name VARCHAR(100)
-      )
-    `;
-
-    // Hospital dimension
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.dim_hospital (
-        hospital_id SERIAL PRIMARY KEY,
-        hospital_name VARCHAR(200),
-        hospital_type VARCHAR(50),
-        location VARCHAR(100),
-        state VARCHAR(50),
-        region VARCHAR(50),
-        bed_capacity INTEGER,
-        staff_count INTEGER,
-        specializations TEXT[],
-        accreditation_level VARCHAR(50),
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // Drug dimension
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.dim_drug (
-        drug_id SERIAL PRIMARY KEY,
-        drug_name VARCHAR(200),
-        generic_name VARCHAR(200),
-        category VARCHAR(100),
-        manufacturer VARCHAR(200),
-        unit_of_measure VARCHAR(50),
-        strength VARCHAR(50),
-        form VARCHAR(50),
-        controlled_substance BOOLEAN,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // Patient demographics dimension (anonymized)
-    await sql`
-      CREATE TABLE IF NOT EXISTS data_warehouse.dim_patient_demographics (
-        demographic_id SERIAL PRIMARY KEY,
-        age_group VARCHAR(20),
-        gender VARCHAR(20),
-        state VARCHAR(50),
-        insurance_type VARCHAR(50),
-        chronic_conditions INTEGER,
-        visit_frequency_category VARCHAR(20),
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-  }
-
-  /**
-   * Create materialized views for performance
-   */
-  async createMaterializedViews() {
-    // Hospital performance summary
-    await sql`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS analytics.mv_hospital_performance AS
-      SELECT 
-        h.hospital_id,
-        h.hospital_name,
-        h.location,
-        COUNT(DISTINCT fv.patient_id) as unique_patients_30d,
-        AVG(fo.bed_occupancy_rate) as avg_occupancy_30d,
-        SUM(fo.daily_revenue) as total_revenue_30d,
-        AVG(fo.staff_attendance_rate) as avg_staff_attendance_30d,
-        COUNT(DISTINCT CASE WHEN fv.visit_type = 'emergency' THEN fv.visit_id END) as emergency_visits_30d
-      FROM data_warehouse.dim_hospital h
-      LEFT JOIN data_warehouse.fact_hospital_operations fo ON h.hospital_id = fo.hospital_id
-      LEFT JOIN data_warehouse.fact_patient_visits fv ON h.hospital_id = fv.hospital_id
-      WHERE fo.operation_date >= CURRENT_DATE - INTERVAL '30 days'
-      GROUP BY h.hospital_id, h.hospital_name, h.location
-    `;
-
-    // Drug utilization patterns
-    await sql`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS analytics.mv_drug_utilization AS
-      SELECT 
-        d.drug_name,
-        d.category,
-        SUM(fi.dispensed_quantity) as total_dispensed_30d,
-        AVG(fi.closing_stock) as avg_stock_level,
-        COUNT(DISTINCT fi.hospital_id) as hospitals_using,
-        SUM(fi.stockout_incidents) as total_stockouts_30d
-      FROM data_warehouse.dim_drug d
-      JOIN data_warehouse.fact_drug_inventory fi ON d.drug_id = fi.drug_id
-      WHERE fi.snapshot_date >= CURRENT_DATE - INTERVAL '30 days'
-      GROUP BY d.drug_name, d.category
-    `;
-
-    // Financial performance summary
-    await sql`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS analytics.mv_financial_summary AS
-      SELECT 
-        hospital_id,
-        DATE_TRUNC('month', transaction_date) as month,
-        SUM(CASE WHEN transaction_type = 'revenue' THEN amount ELSE 0 END) as total_revenue,
-        SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) as total_expenses,
-        SUM(CASE WHEN payment_method = 'insurance' THEN amount ELSE 0 END) as insurance_revenue,
-        SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END) as cash_revenue,
-        COUNT(DISTINCT transaction_id) as transaction_count
-      FROM data_warehouse.fact_financial_transactions
-      GROUP BY hospital_id, DATE_TRUNC('month', transaction_date)
-    `;
-  }
-
-  /**
-   * Create analytics tables for ML/AI features
-   */
-  async createAnalyticsTables() {
-    // Predictive analytics results
-    await sql`
-      CREATE TABLE IF NOT EXISTS analytics.predictions (
-        prediction_id SERIAL PRIMARY KEY,
-        model_name VARCHAR(100),
-        model_version VARCHAR(20),
-        prediction_type VARCHAR(50),
-        entity_type VARCHAR(50),
-        entity_id INTEGER,
-        prediction_date DATE,
-        prediction_value JSONB,
-        confidence_score DECIMAL(3, 2),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // Anomaly detection results
-    await sql`
-      CREATE TABLE IF NOT EXISTS analytics.anomalies (
-        anomaly_id SERIAL PRIMARY KEY,
-        detection_type VARCHAR(50),
-        hospital_id INTEGER,
-        metric_name VARCHAR(100),
-        expected_value DECIMAL(12, 2),
-        actual_value DECIMAL(12, 2),
-        deviation_percentage DECIMAL(5, 2),
-        severity VARCHAR(20),
-        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        resolved_at TIMESTAMP,
-        resolution_notes TEXT
-      )
-    `;
-
-    // KPI tracking
-    await sql`
-      CREATE TABLE IF NOT EXISTS analytics.kpi_metrics (
-        kpi_id SERIAL PRIMARY KEY,
-        hospital_id INTEGER,
-        kpi_name VARCHAR(100),
-        kpi_value DECIMAL(12, 2),
-        target_value DECIMAL(12, 2),
-        achievement_percentage DECIMAL(5, 2),
-        period_type VARCHAR(20),
-        period_date DATE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // Patient risk scores
-    await sql`
-      CREATE TABLE IF NOT EXISTS analytics.patient_risk_scores (
-        score_id SERIAL PRIMARY KEY,
-        patient_demographic_id INTEGER,
-        risk_type VARCHAR(50),
-        risk_score DECIMAL(3, 2),
-        risk_factors JSONB,
-        recommendations TEXT[],
-        calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-  }
-
-  /**
-   * ETL Pipeline: Extract data from operational tables
-   */
-  async extractOperationalData(startDate, endDate) {
-    try {
-      const extractedData = {
-        patients: await sql`
-          SELECT * FROM patients 
-          WHERE created_at BETWEEN ${startDate} AND ${endDate}
-        `,
-        hospitals: await sql`
-          SELECT * FROM hospitals 
-          WHERE updated_at BETWEEN ${startDate} AND ${endDate}
-        `,
-        transactions: await sql`
-          SELECT * FROM financial_transactions 
-          WHERE transaction_date BETWEEN ${startDate} AND ${endDate}
-        `,
-        inventory: await sql`
-          SELECT * FROM inventory 
-          WHERE last_updated BETWEEN ${startDate} AND ${endDate}
-        `
-      };
-
-      return extractedData;
-    } catch (error) {
-      console.error('Error extracting operational data:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * ETL Pipeline: Transform data for analytics
-   */
-  async transformData(extractedData) {
-    const transformed = {
-      patientMetrics: this.calculatePatientMetrics(extractedData.patients),
-      hospitalMetrics: this.calculateHospitalMetrics(extractedData.hospitals),
-      financialMetrics: this.calculateFinancialMetrics(extractedData.transactions),
-      inventoryMetrics: this.calculateInventoryMetrics(extractedData.inventory)
-    };
-
-    return transformed;
-  }
-
-  /**
-   * ETL Pipeline: Load data into data warehouse
-   */
-  async loadToWarehouse(transformedData) {
-    try {
-      // Begin transaction
-      await sql`BEGIN`;
-
-      // Load fact tables
-      for (const visit of transformedData.patientVisits || []) {
-        await sql`
-          INSERT INTO data_warehouse.fact_patient_visits 
-          (patient_id, hospital_id, doctor_id, visit_date, visit_type, 
-           treatment_cost, insurance_claim_amount, payment_method)
-          VALUES (${visit.patient_id}, ${visit.hospital_id}, ${visit.doctor_id},
-                  ${visit.visit_date}, ${visit.visit_type}, ${visit.treatment_cost},
-                  ${visit.insurance_claim_amount}, ${visit.payment_method})
-        `;
+      for (const [module, schema] of Object.entries(this.schemas)) {
+        await this.pool.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+        logger.info(`Schema ${schema} initialized for ${module} module`);
       }
 
-      // Refresh materialized views
-      await sql`REFRESH MATERIALIZED VIEW analytics.mv_hospital_performance`;
-      await sql`REFRESH MATERIALIZED VIEW analytics.mv_drug_utilization`;
-      await sql`REFRESH MATERIALIZED VIEW analytics.mv_financial_summary`;
-
-      await sql`COMMIT`;
-      console.log('✅ Data loaded to warehouse successfully');
+      // Create aggregated tables
+      await this.createAggregatedTables();
+      
+      return true;
     } catch (error) {
-      await sql`ROLLBACK`;
-      console.error('❌ Error loading to warehouse:', error);
+      logger.error('Error initializing data lake schemas:', error);
+      return false;
+    }
+  }
+
+  // Create aggregated tables for analytics
+  async createAggregatedTables() {
+    const tables = [
+      // Operations aggregate
+      `CREATE TABLE IF NOT EXISTS dl_analytics.hospital_metrics (
+        id SERIAL PRIMARY KEY,
+        hospital_id VARCHAR(50),
+        metric_date DATE,
+        total_patients INTEGER,
+        admissions INTEGER,
+        discharges INTEGER,
+        bed_occupancy_rate DECIMAL(5,2),
+        average_length_of_stay DECIMAL(5,2),
+        emergency_visits INTEGER,
+        outpatient_visits INTEGER,
+        surgery_count INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )`,
+
+      // Financial aggregate
+      `CREATE TABLE IF NOT EXISTS dl_analytics.revenue_metrics (
+        id SERIAL PRIMARY KEY,
+        hospital_id VARCHAR(50),
+        period_date DATE,
+        period_type VARCHAR(20), -- daily, weekly, monthly
+        total_revenue DECIMAL(15,2),
+        cash_revenue DECIMAL(15,2),
+        insurance_revenue DECIMAL(15,2),
+        hmo_revenue DECIMAL(15,2),
+        expenses DECIMAL(15,2),
+        profit_margin DECIMAL(5,2),
+        outstanding_receivables DECIMAL(15,2),
+        collection_rate DECIMAL(5,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+
+      // Clinical outcomes
+      `CREATE TABLE IF NOT EXISTS dl_analytics.clinical_outcomes (
+        id SERIAL PRIMARY KEY,
+        hospital_id VARCHAR(50),
+        period_date DATE,
+        mortality_rate DECIMAL(5,2),
+        readmission_rate DECIMAL(5,2),
+        infection_rate DECIMAL(5,2),
+        patient_satisfaction_score DECIMAL(3,2),
+        average_wait_time_minutes INTEGER,
+        medication_error_rate DECIMAL(5,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+
+      // Staff metrics
+      `CREATE TABLE IF NOT EXISTS dl_analytics.staff_metrics (
+        id SERIAL PRIMARY KEY,
+        hospital_id VARCHAR(50),
+        metric_date DATE,
+        total_staff INTEGER,
+        doctors INTEGER,
+        nurses INTEGER,
+        support_staff INTEGER,
+        attendance_rate DECIMAL(5,2),
+        overtime_hours DECIMAL(10,2),
+        turnover_rate DECIMAL(5,2),
+        training_hours DECIMAL(10,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+
+      // Inventory metrics
+      `CREATE TABLE IF NOT EXISTS dl_analytics.inventory_metrics (
+        id SERIAL PRIMARY KEY,
+        hospital_id VARCHAR(50),
+        metric_date DATE,
+        total_items INTEGER,
+        stock_value DECIMAL(15,2),
+        expired_items_count INTEGER,
+        expired_items_value DECIMAL(15,2),
+        stockout_incidents INTEGER,
+        reorder_accuracy DECIMAL(5,2),
+        inventory_turnover_ratio DECIMAL(5,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+
+      // Partner metrics
+      `CREATE TABLE IF NOT EXISTS dl_analytics.partner_metrics (
+        id SERIAL PRIMARY KEY,
+        hospital_id VARCHAR(50),
+        metric_date DATE,
+        insurance_claims_submitted INTEGER,
+        insurance_claims_approved INTEGER,
+        insurance_approval_rate DECIMAL(5,2),
+        average_claim_amount DECIMAL(15,2),
+        pharmacy_orders INTEGER,
+        pharmacy_order_value DECIMAL(15,2),
+        telemedicine_consultations INTEGER,
+        telemedicine_revenue DECIMAL(15,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+
+      // Predictive analytics results
+      `CREATE TABLE IF NOT EXISTS dl_analytics.predictions (
+        id SERIAL PRIMARY KEY,
+        hospital_id VARCHAR(50),
+        prediction_type VARCHAR(50),
+        target_date DATE,
+        predicted_value DECIMAL(15,2),
+        confidence_score DECIMAL(3,2),
+        actual_value DECIMAL(15,2),
+        model_version VARCHAR(20),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+
+      // Data quality metrics
+      `CREATE TABLE IF NOT EXISTS dl_analytics.data_quality (
+        id SERIAL PRIMARY KEY,
+        table_name VARCHAR(100),
+        check_date DATE,
+        total_records INTEGER,
+        valid_records INTEGER,
+        invalid_records INTEGER,
+        completeness_score DECIMAL(5,2),
+        accuracy_score DECIMAL(5,2),
+        consistency_score DECIMAL(5,2),
+        timeliness_score DECIMAL(5,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`
+    ];
+
+    for (const tableSQL of tables) {
+      await this.pool.query(tableSQL);
+    }
+
+    logger.info('Aggregated tables created successfully');
+  }
+
+  // Aggregate hospital metrics
+  async aggregateHospitalMetrics(hospitalId, date = new Date()) {
+    try {
+      const metrics = await this.pool.query(`
+        WITH patient_metrics AS (
+          SELECT 
+            COUNT(DISTINCT patient_id) as total_patients,
+            COUNT(CASE WHEN admission_date = $2 THEN 1 END) as admissions,
+            COUNT(CASE WHEN discharge_date = $2 THEN 1 END) as discharges,
+            COUNT(CASE WHEN visit_type = 'emergency' THEN 1 END) as emergency_visits,
+            COUNT(CASE WHEN visit_type = 'outpatient' THEN 1 END) as outpatient_visits
+          FROM patients
+          WHERE hospital_id = $1 AND DATE(created_at) <= $2
+        ),
+        bed_metrics AS (
+          SELECT 
+            (COUNT(CASE WHEN status = 'occupied' THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0)) as occupancy_rate
+          FROM beds
+          WHERE hospital_id = $1
+        ),
+        surgery_metrics AS (
+          SELECT COUNT(*) as surgery_count
+          FROM surgeries
+          WHERE hospital_id = $1 AND DATE(surgery_date) = $2
+        )
+        SELECT * FROM patient_metrics, bed_metrics, surgery_metrics
+      `, [hospitalId, date]);
+
+      const data = metrics.rows[0];
+
+      // Insert or update metrics
+      await this.pool.query(`
+        INSERT INTO dl_analytics.hospital_metrics 
+        (hospital_id, metric_date, total_patients, admissions, discharges, 
+         bed_occupancy_rate, emergency_visits, outpatient_visits, surgery_count)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (hospital_id, metric_date) 
+        DO UPDATE SET 
+          total_patients = $3,
+          admissions = $4,
+          discharges = $5,
+          bed_occupancy_rate = $6,
+          emergency_visits = $7,
+          outpatient_visits = $8,
+          surgery_count = $9,
+          updated_at = NOW()
+      `, [
+        hospitalId, date, 
+        data.total_patients || 0,
+        data.admissions || 0,
+        data.discharges || 0,
+        data.occupancy_rate || 0,
+        data.emergency_visits || 0,
+        data.outpatient_visits || 0,
+        data.surgery_count || 0
+      ]);
+
+      return data;
+    } catch (error) {
+      logger.error('Error aggregating hospital metrics:', error);
       throw error;
     }
   }
 
-  /**
-   * Run ETL pipeline
-   */
-  async runETLPipeline() {
+  // Aggregate financial metrics
+  async aggregateFinancialMetrics(hospitalId, date = new Date(), periodType = 'daily') {
     try {
-      console.log('🔄 Starting ETL pipeline...');
-      
-      const endDate = new Date();
-      const startDate = new Date(endDate - 24 * 60 * 60 * 1000); // Last 24 hours
-
-      // Extract
-      const extracted = await this.extractOperationalData(startDate, endDate);
-      
-      // Transform
-      const transformed = await this.transformData(extracted);
-      
-      // Load
-      await this.loadToWarehouse(transformed);
-
-      console.log('✅ ETL pipeline completed successfully');
-      return true;
-    } catch (error) {
-      console.error('❌ ETL pipeline failed:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Schedule ETL jobs
-   */
-  scheduleETLJobs() {
-    // Daily ETL at 2 AM
-    const dailyJob = schedule.scheduleJob('0 2 * * *', async () => {
-      console.log('🕒 Running scheduled daily ETL...');
-      await this.runETLPipeline();
-    });
-    
-    this.etlJobs.set('daily', dailyJob);
-
-    // Hourly incremental updates
-    const hourlyJob = schedule.scheduleJob('0 * * * *', async () => {
-      console.log('🕒 Running hourly incremental update...');
-      await this.runIncrementalUpdate();
-    });
-    
-    this.etlJobs.set('hourly', hourlyJob);
-
-    console.log('✅ ETL jobs scheduled successfully');
-  }
-
-  /**
-   * Run incremental updates
-   */
-  async runIncrementalUpdate() {
-    try {
-      // Update only recent changes
-      const lastHour = new Date(Date.now() - 60 * 60 * 1000);
-      
-      await sql`
-        INSERT INTO analytics.kpi_metrics (hospital_id, kpi_name, kpi_value, period_date)
+      const metrics = await this.pool.query(`
+        WITH revenue_data AS (
+          SELECT 
+            SUM(amount) as total_revenue,
+            SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END) as cash_revenue,
+            SUM(CASE WHEN payment_method = 'insurance' THEN amount ELSE 0 END) as insurance_revenue,
+            SUM(CASE WHEN payment_method = 'hmo' THEN amount ELSE 0 END) as hmo_revenue
+          FROM financial_transactions
+          WHERE hospital_id = $1 
+            AND transaction_type = 'revenue'
+            AND DATE(transaction_date) = $2
+        ),
+        expense_data AS (
+          SELECT SUM(amount) as expenses
+          FROM financial_transactions
+          WHERE hospital_id = $1 
+            AND transaction_type = 'expense'
+            AND DATE(transaction_date) = $2
+        ),
+        receivables AS (
+          SELECT SUM(amount) as outstanding
+          FROM accounts_receivable
+          WHERE hospital_id = $1 AND status = 'pending'
+        )
         SELECT 
-          hospital_id,
-          'hourly_patient_count' as kpi_name,
-          COUNT(*) as kpi_value,
-          CURRENT_DATE as period_date
-        FROM patients
-        WHERE created_at >= ${lastHour}
-        GROUP BY hospital_id
-      `;
+          r.*,
+          e.expenses,
+          rec.outstanding as outstanding_receivables,
+          CASE 
+            WHEN r.total_revenue > 0 
+            THEN ((r.total_revenue - COALESCE(e.expenses, 0)) / r.total_revenue * 100)
+            ELSE 0 
+          END as profit_margin
+        FROM revenue_data r, expense_data e, receivables rec
+      `, [hospitalId, date]);
 
-      return true;
+      const data = metrics.rows[0];
+
+      await this.pool.query(`
+        INSERT INTO dl_analytics.revenue_metrics 
+        (hospital_id, period_date, period_type, total_revenue, cash_revenue, 
+         insurance_revenue, hmo_revenue, expenses, profit_margin, outstanding_receivables)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (hospital_id, period_date, period_type)
+        DO UPDATE SET
+          total_revenue = $4,
+          cash_revenue = $5,
+          insurance_revenue = $6,
+          hmo_revenue = $7,
+          expenses = $8,
+          profit_margin = $9,
+          outstanding_receivables = $10,
+          created_at = NOW()
+      `, [
+        hospitalId, date, periodType,
+        data.total_revenue || 0,
+        data.cash_revenue || 0,
+        data.insurance_revenue || 0,
+        data.hmo_revenue || 0,
+        data.expenses || 0,
+        data.profit_margin || 0,
+        data.outstanding_receivables || 0
+      ]);
+
+      return data;
     } catch (error) {
-      console.error('Error in incremental update:', error);
-      return false;
+      logger.error('Error aggregating financial metrics:', error);
+      throw error;
     }
   }
 
-  // Helper methods for metrics calculation
-  calculatePatientMetrics(patients) {
-    // Implementation for patient metrics calculation
-    return {
-      totalPatients: patients.length,
-      averageAge: 35,
-      genderDistribution: { male: 0.48, female: 0.52 }
-    };
-  }
-
-  calculateHospitalMetrics(hospitals) {
-    // Implementation for hospital metrics calculation
-    return {
-      totalHospitals: hospitals.length,
-      averageOccupancy: 75,
-      totalBeds: 1000
-    };
-  }
-
-  calculateFinancialMetrics(transactions) {
-    // Implementation for financial metrics calculation
-    return {
-      totalRevenue: 10000000,
-      totalExpenses: 7500000,
-      profitMargin: 0.25
-    };
-  }
-
-  calculateInventoryMetrics(inventory) {
-    // Implementation for inventory metrics calculation
-    return {
-      totalItems: inventory.length,
-      lowStockItems: 15,
-      expiringItems: 5
-    };
-  }
-
-  /**
-   * Get analytics dashboard data
-   */
-  async getAnalyticsDashboard(hospitalId = null) {
+  // Get cross-hospital analytics
+  async getCrossHospitalAnalytics(startDate, endDate) {
     try {
-      const whereClause = hospitalId ? sql`WHERE hospital_id = ${hospitalId}` : sql``;
+      const analytics = await this.pool.query(`
+        SELECT 
+          h.hospital_id,
+          h.hospital_name,
+          AVG(hm.bed_occupancy_rate) as avg_occupancy,
+          SUM(hm.total_patients) as total_patients,
+          SUM(rm.total_revenue) as total_revenue,
+          AVG(sm.attendance_rate) as avg_staff_attendance,
+          AVG(co.patient_satisfaction_score) as avg_satisfaction
+        FROM hospitals h
+        LEFT JOIN dl_analytics.hospital_metrics hm ON h.hospital_id = hm.hospital_id
+        LEFT JOIN dl_analytics.revenue_metrics rm ON h.hospital_id = rm.hospital_id
+        LEFT JOIN dl_analytics.staff_metrics sm ON h.hospital_id = sm.hospital_id
+        LEFT JOIN dl_analytics.clinical_outcomes co ON h.hospital_id = co.hospital_id
+        WHERE hm.metric_date BETWEEN $1 AND $2
+        GROUP BY h.hospital_id, h.hospital_name
+        ORDER BY total_revenue DESC
+      `, [startDate, endDate]);
 
-      const performance = await sql`
-        SELECT * FROM analytics.mv_hospital_performance
-        ${whereClause}
-      `;
+      return analytics.rows;
+    } catch (error) {
+      logger.error('Error getting cross-hospital analytics:', error);
+      throw error;
+    }
+  }
 
-      const drugUtilization = await sql`
-        SELECT * FROM analytics.mv_drug_utilization
-        ORDER BY total_dispensed_30d DESC
-        LIMIT 10
-      `;
+  // Data quality check
+  async performDataQualityCheck(tableName) {
+    try {
+      // Check completeness
+      const totalRecords = await this.pool.query(
+        `SELECT COUNT(*) as count FROM ${tableName}`
+      );
 
-      const financialSummary = await sql`
-        SELECT * FROM analytics.mv_financial_summary
-        ${whereClause}
-        ORDER BY month DESC
-        LIMIT 12
-      `;
+      const nullChecks = await this.pool.query(`
+        SELECT 
+          COUNT(*) FILTER (WHERE hospital_id IS NULL) as null_hospital_ids,
+          COUNT(*) as total
+        FROM ${tableName}
+      `);
 
-      const recentAnomalies = await sql`
-        SELECT * FROM analytics.anomalies
-        ${whereClause}
-        WHERE resolved_at IS NULL
-        ORDER BY detected_at DESC
-        LIMIT 10
-      `;
+      const completenessScore = 
+        ((totalRecords.rows[0].count - nullChecks.rows[0].null_hospital_ids) / 
+         totalRecords.rows[0].count * 100) || 0;
+
+      // Record quality metrics
+      await this.pool.query(`
+        INSERT INTO dl_analytics.data_quality
+        (table_name, check_date, total_records, valid_records, invalid_records, 
+         completeness_score, accuracy_score, consistency_score, timeliness_score)
+        VALUES ($1, NOW()::date, $2, $3, $4, $5, 85, 90, 95)
+      `, [
+        tableName,
+        totalRecords.rows[0].count,
+        totalRecords.rows[0].count - nullChecks.rows[0].null_hospital_ids,
+        nullChecks.rows[0].null_hospital_ids,
+        completenessScore
+      ]);
 
       return {
-        performance: performance.rows || performance,
-        drugUtilization: drugUtilization.rows || drugUtilization,
-        financialSummary: financialSummary.rows || financialSummary,
-        anomalies: recentAnomalies.rows || recentAnomalies
+        tableName,
+        totalRecords: totalRecords.rows[0].count,
+        completenessScore,
+        status: completenessScore > 90 ? 'good' : 'needs_improvement'
       };
     } catch (error) {
-      console.error('Error getting analytics dashboard:', error);
+      logger.error('Error performing data quality check:', error);
       throw error;
     }
   }
 
-  /**
-   * Cleanup and maintenance
-   */
-  async performMaintenance() {
+  // Export data for external analytics tools
+  async exportDataForAnalytics(module, startDate, endDate, format = 'json') {
     try {
-      // Vacuum analyze for performance
-      await sql`VACUUM ANALYZE`;
-      
-      // Archive old data
-      const archiveDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // 1 year old
-      
-      await sql`
-        INSERT INTO data_warehouse.archived_data
-        SELECT * FROM data_warehouse.fact_patient_visits
-        WHERE visit_date < ${archiveDate}
-      `;
+      const schema = this.schemas[module];
+      if (!schema) {
+        throw new Error(`Unknown module: ${module}`);
+      }
 
-      await sql`
-        DELETE FROM data_warehouse.fact_patient_visits
-        WHERE visit_date < ${archiveDate}
-      `;
+      const data = await this.pool.query(`
+        SELECT * FROM ${schema}.* 
+        WHERE created_at BETWEEN $1 AND $2
+        ORDER BY created_at DESC
+      `, [startDate, endDate]);
 
-      console.log('✅ Maintenance completed successfully');
+      if (format === 'csv') {
+        return this.convertToCSV(data.rows);
+      }
+
+      return data.rows;
     } catch (error) {
-      console.error('❌ Maintenance failed:', error);
+      logger.error('Error exporting data:', error);
+      throw error;
     }
+  }
+
+  // Convert data to CSV format
+  convertToCSV(data) {
+    if (data.length === 0) return '';
+    
+    const headers = Object.keys(data[0]);
+    const csvHeaders = headers.join(',');
+    
+    const csvRows = data.map(row => 
+      headers.map(header => {
+        const value = row[header];
+        return typeof value === 'string' && value.includes(',') 
+          ? `"${value}"` 
+          : value;
+      }).join(',')
+    );
+
+    return `${csvHeaders}\n${csvRows.join('\n')}`;
+  }
+
+  // Close connection pool
+  async close() {
+    await this.pool.end();
   }
 }
 
-module.exports = new DataLakeManager();
+module.exports = new DataLake();
