@@ -4,24 +4,56 @@
 
 @layer base {
   body {
-    @apply bg-white text-gray-900 min-h-screen;
+    background-color: white;
+    color: rgb(17 24 39);
+    min-height: 100vh;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors duration-200 font-medium;
+    background-color: rgb(2 132 199);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    transition: background-color 200ms;
+  }
+  
+  .btn-primary:hover {
+    background-color: rgb(3 105 161);
   }
   
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors duration-200 font-medium;
+    background-color: rgb(229 231 235);
+    color: rgb(31 41 55);
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    transition: background-color 200ms;
+  }
+  
+  .btn-secondary:hover {
+    background-color: rgb(209 213 219);
   }
   
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgb(209 213 219);
+    border-radius: 0.5rem;
+  }
+  
+  .input-field:focus {
+    outline: none;
+    border-color: transparent;
+    box-shadow: 0 0 0 2px rgb(14 165 233);
   }
   
   .card {
-    @apply bg-white rounded-lg shadow-md p-6;
+    background-color: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
   }
 }

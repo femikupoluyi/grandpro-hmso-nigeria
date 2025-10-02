@@ -10,9 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@headlessui/react": "^2.2.9",
     "@heroicons/react": "^1.0.6",
     "@hookform/resolvers": "^5.2.2",
+    "@mui/icons-material": "^7.3.3",
+    "@mui/material": "^7.3.3",
     "autoprefixer": "^10.4.21",
     "axios": "^1.12.2",
     "date-fns": "^4.1.0",
@@ -26,6 +30,7 @@
     "react-hook-form": "^7.63.0",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.9.3",
+    "recharts": "^3.2.1",
     "tailwindcss": "^4.1.14",
     "yup": "^1.7.1",
     "zustand": "^5.0.8"

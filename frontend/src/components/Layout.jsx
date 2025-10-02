@@ -5,7 +5,7 @@ import {
   DocumentTextIcon, 
   CloudUploadIcon, 
   ChartBarIcon,
-  DocumentCheckIcon,
+  DocumentDuplicateIcon,
   DesktopComputerIcon
 } from '@heroicons/react/outline';
 
@@ -17,7 +17,7 @@ const Layout = ({ children }) => {
     { name: 'Apply', href: '/apply', icon: DocumentTextIcon },
     { name: 'Documents', href: '/upload-documents', icon: CloudUploadIcon },
     { name: 'Progress', href: '/progress', icon: ChartBarIcon },
-    { name: 'Contract', href: '/contract', icon: DocumentCheckIcon },
+    { name: 'Contract', href: '/contract', icon: DocumentDuplicateIcon },
     { name: 'Command Centre', href: '/command-centre', icon: DesktopComputerIcon },
   ];
 

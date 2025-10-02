@@ -65,4 +65,5 @@ export const onboardingAPI = {
     api.post(`/onboarding/contracts/${contractId}/sign`, data),
 };
 
+export { api };
 export default api;
