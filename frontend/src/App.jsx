@@ -6,6 +6,7 @@ import DocumentUpload from './pages/DocumentUpload';
 import ApplicationProgress from './pages/ApplicationProgress';
 import ContractReview from './pages/ContractReview';
 import HomePage from './pages/HomePage';
+import CommandCentreSimple from './pages/operations/CommandCentreSimple';
 import Layout from './components/Layout';
 
 function App() {
@@ -35,16 +36,15 @@ function App() {
           },
         }}
       />
-      <Layout>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/apply" element={<ApplicationForm />} />
-          <Route path="/upload-documents/:applicationId" element={<DocumentUpload />} />
-          <Route path="/progress/:applicationNumber" element={<ApplicationProgress />} />
-          <Route path="/contract/:contractId" element={<ContractReview />} />
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </Layout>
+      <Routes>
+        <Route path="/" element={<Layout><HomePage /></Layout>} />
+        <Route path="/apply" element={<Layout><ApplicationForm /></Layout>} />
+        <Route path="/upload-documents/:applicationId" element={<Layout><DocumentUpload /></Layout>} />
+        <Route path="/progress/:applicationNumber" element={<Layout><ApplicationProgress /></Layout>} />
+        <Route path="/contract/:contractId" element={<Layout><ContractReview /></Layout>} />
+        <Route path="/command-centre" element={<CommandCentreSimple />} />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
     </Router>
   );
 }
